@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Block Blast Mobile</title>
+
+<style>
+body{
+    margin:0;
+    background:#0f0f1a;
+    font-family:system-ui, -apple-system, sans-serif;
+    color:white;
+    display:flex;
+    justify-content:center;
+}
+
+#app{
+    width:100%;
+    max-width:420px;
+    padding:15px;
+}
+
+.topbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+}
+
+.scoreBox{
+    background:#1e1e2f;
+    padding:10px 15px;
+    border-radius:12px;
+}
+
+#board{
+    margin-top:20px;
+    display:grid;
+    grid-template-columns:repeat(8,1fr);
+    gap:6px;
+}
+
+.cell{
+    aspect-ratio:1;
+    background:#1a1a2a;
+    border-radius:10px;
+    transition:0.15s;
+}
+
+.filled{
+    background:linear-gradient(135deg,#00f0ff,#006eff);
+    box-shadow:0 0 8px #00f0ff;
+}
+
+.preview{
+    background:rgba(0,255,255,0.4);
+}
+
+#pieces{
+    margin-top:25px;
+    display:flex;
+    justify-content:space-between;
+}
+
+.piece{
+    display:grid;
+    gap:4px;
+    touch-action:none;
+}
+
+.piece div{
+    width:20px;
+    height:20px;
+    background:#00f0ff;
+    border-radius:5px;
+}
+
+.combo{
+    position:absolute;
+    top:80px;
+    left:50%;
+    transform:translateX(-50%);
+    font-size:28px;
+    color:#00f0ff;
+    animation:pop 0.6s ease;
+}
+
+@keyframes pop{
+    0%{transform:translateX(-50%) scale(0);}
+    50%{transform:translateX(-50%) scale(1.4);}
+    100%{transform:translateX(-50%) scale(1);}
+}
+
+button{
+    background:#00f0ff;
+    border:none;
+    padding:8px 14px;
+    border-radius:8px;
+    font-weight:bold;
+}
+</style>
+</head>
+
+<body>
+<div id="app">
+
+<div class="topbar">
+    <div class="scoreBox">
+        Puntos<br><span id="score">0</span>
+    </div>
+    <button onclick="resetGame()">Reiniciar</button>
+</div>
+
+<div id="board"></div>
+<div id="pieces"></div>
+
+</div>
+
+<script>
+const size=8;
+let board=[];
+let score=0;
+let combo=0;
+let active=null;
+let shapeActive=null;
+
+const shapes=[
+[[1]],
+[[1,1]],
+[[1],[1]],
+[[1,1,1]],
+[[1],[1],[1]],
+[[1,1],[1,1]],
+[[1,1,1],[0,1,0]],
+[[1,0],[1,0],[1,1]]
+];
+
+const boardEl=document.getElementById("board");
+const piecesEl=document.getElementById("pieces");
+
+function init(){
+    board=[];
+    boardEl.innerHTML="";
+    piecesEl.innerHTML="";
+    score=parseInt(localStorage.getItem("bb_score"))||0;
+    document.getElementById("score").innerText=score;
+
+    for(let r=0;r<size;r++){
+        board[r]=[];
+        for(let c=0;c<size;c++){
+            board[r][c]=0;
+            const cell=document.createElement("div");
+            cell.className="cell";
+            cell.dataset.r=r;
+            cell.dataset.c=c;
+            boardEl.appendChild(cell);
+        }
+    }
+
+    for(let i=0;i<3;i++) newPiece();
+}
+
+function newPiece(){
+    const shape=JSON.parse(JSON.stringify(
+        shapes[Math.floor(Math.random()*shapes.length)]
+    ));
+
+    const piece=document.createElement("div");
+    piece.className="piece";
+    piece.shape=shape;
+    piece.style.gridTemplateColumns=`repeat(${shape[0].length},20px)`;
+
+    shape.forEach(row=>{
+        row.forEach(cell=>{
+            const b=document.createElement("div");
+            if(!cell) b.style.visibility="hidden";
+            piece.appendChild(b);
+        });
+    });
+
+    piece.addEventListener("pointerdown",startDrag);
+    piecesEl.appendChild(piece);
+}
+
+function startDrag(e){
+    active=e.currentTarget;
+    shapeActive=active.shape;
+    active.style.position="absolute";
+    active.style.zIndex="1000";
+    move(e);
+    document.addEventListener("pointermove",move);
+    document.addEventListener("pointerup",drop);
+}
+
+function move(e){
+    if(!active)return;
+    active.style.left=e.pageX-30+"px";
+    active.style.top=e.pageY-30+"px";
+    showPreview(e);
+}
+
+function drop(e){
+    if(!active)return;
+    place(e);
+    active.remove();
+    active=null;
+    document.removeEventListener("pointermove",move);
+    document.removeEventListener("pointerup",drop);
+}
+
+function showPreview(e){
+    clearPreview();
+    const rect=boardEl.getBoundingClientRect();
+    const cellSize=rect.width/8;
+    const col=Math.floor((e.clientX-rect.left)/cellSize);
+    const row=Math.floor((e.clientY-rect.top)/cellSize);
+
+    if(canPlace(shapeActive,row,col)){
+        shapeActive.forEach((rArr,r)=>{
+            rArr.forEach((v,c)=>{
+                if(v) getCell(row+r,col+c).classList.add("preview");
+            });
+        });
+    }
+}
+
+function clearPreview(){
+    document.querySelectorAll(".preview")
+        .forEach(c=>c.classList.remove("preview"));
+}
+
+function place(e){
+    const rect=boardEl.getBoundingClientRect();
+    const cellSize=rect.width/8;
+    const col=Math.floor((e.clientX-rect.left)/cellSize);
+    const row=Math.floor((e.clientY-rect.top)/cellSize);
+
+    if(canPlace(shapeActive,row,col)){
+        shapeActive.forEach((rArr,r)=>{
+            rArr.forEach((v,c)=>{
+                if(v){
+                    board[row+r][col+c]=1;
+                    getCell(row+r,col+c).classList.add("filled");
+                }
+            });
+        });
+
+        navigator.vibrate?.(50);
+        checkLines();
+        newPiece();
+        checkGameOver();
+    }
+}
+
+function canPlace(shape,row,col){
+    if(row<0||col<0)return false;
+    for(let r=0;r<shape.length;r++){
+        for(let c=0;c<shape[0].length;c++){
+            if(shape[r][c]){
+                if(row+r>=size||col+c>=size)return false;
+                if(board[row+r][col+c])return false;
+            }
+        }
+    }
+    return true;
+}
+
+function checkLines(){
+    let cleared=0;
+
+    for(let r=0;r<size;r++){
+        if(board[r].every(v=>v)){
+            for(let c=0;c<size;c++){
+                board[r][c]=0;
+                getCell(r,c).classList.remove("filled");
+            }
+            cleared++;
+        }
+    }
+
+    for(let c=0;c<size;c++){
+        let full=true;
+        for(let r=0;r<size;r++)
+            if(!board[r][c])full=false;
+        if(full){
+            for(let r=0;r<size;r++){
+                board[r][c]=0;
+                getCell(r,c).classList.remove("filled");
+            }
+            cleared++;
+        }
+    }
+
+    if(cleared){
+        combo++;
+        let gained=cleared*10*combo;
+        score+=gained;
+        localStorage.setItem("bb_score",score);
+        document.getElementById("score").innerText=score;
+        showCombo(combo);
+    }else{
+        combo=0;
+    }
+}
+
+function showCombo(n){
+    const div=document.createElement("div");
+    div.className="combo";
+    div.innerText="Combo x"+n;
+    document.body.appendChild(div);
+    setTimeout(()=>div.remove(),600);
+}
+
+function checkGameOver(){
+    const pieces=document.querySelectorAll(".piece");
+    for(let piece of pieces){
+        for(let r=0;r<size;r++){
+            for(let c=0;c<size;c++){
+                if(canPlace(piece.shape,r,c))return;
+            }
+        }
+    }
+    alert("Game Over");
+}
+
+function getCell(r,c){
+    return document.querySelector(
+        `.cell[data-r='${r}'][data-c='${c}']`
+    );
+}
+
+function resetGame(){
+    localStorage.removeItem("bb_score");
+    init();
+}
+
+init();
+</script>
+</body>
+</html>
